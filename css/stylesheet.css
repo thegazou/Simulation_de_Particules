@@ -63,17 +63,19 @@ h3 img {
 	margin: 0px 5px;
 }
 
+
 canvas {
 	border: 0px solid #000000;
 	background-color: #EEEEEE;
 	margin: 10px auto;
-}
+	float: left;
+ }
+
 
 .illustration {
 	width: 325px;
 	text-align: center;
 }
-
 .details {
 	width: 600px;
 	position: relative; 
