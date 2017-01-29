@@ -10,32 +10,47 @@
     height: 100vh;
 }
 #canvas {
-    position: absolute;
+    position: fixed;
     z-index: 8;    /* position this canvas at bottom of the other one */
 }
 
 #overlay {
-    position: absolute;
+    position: fixed;
     top: 2em;
     left: 1em;
     z-index: 10;
     font-family: monospace;
     background-color: rgba(0, 0, 0, 0.8);
     color: white;
-    padding: 3em;
+    padding: 2em;
 }
 
 #line1{
-    height: 3em;
+    height: 2em;
  }
  #line2{
-     height: 3em;
+     height: 2em;
      background-color: rgba(30, 30, 30, 0.8);
+     width: 20em;
  }
  #line3{
      height: 3em;
      background-color: rgba(30, 30, 30, 0.8);
+     width: 20em;
  }
  #line4{
-     height: 3em;
+     height: 2em;
+ }
+ #line5{
+     height: 2em;
+ }
+ #particuleCount
+ {
+     color:greenyellow;
+     font-weight:bold;
+ }
+ #FPS
+ {
+
+     font-weight:bold;
  }
