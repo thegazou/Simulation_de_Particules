@@ -47,7 +47,7 @@ function displayTitle(title, a, b, c, d, e, f, g) {
     }*/
 
     // make a similar title for all JS example presented in this course:
-    var titleAsHeader = "<header><h1>&nbsp;" + title + "<br /></h1><br>&nbsp;&nbsp;<a href='http://webgl3d.info' style='text-decoration:none; color: white;'>WebGL par la pratique&copy; 2015</a></header>";
+    var titleAsHeader = "<header><h1>&nbsp;" + title + "<br /></h1><br>&nbsp;&nbsp;<a href='http://webgl3d.info' style='text-decoration:none; color: white;'>Par Nicolas Gonin Dans le cadre du cours d'infographie de Stephane Gobron. Janvier 2017</a></header>";
     document.write(titleAsHeader);
     document.title = title;
     

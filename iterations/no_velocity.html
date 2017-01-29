@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8"/>
+    <link rel="stylesheet" href="../css/gobron_stylesheet.css">
+    <script src="../js/commonFunctions.js"></script>
+    <script src="../js/webglTools.js"></script>
+
+    <script id="update-vertex-shader" type="x-shader/x-vertex">
+        #ifdef GL_ES
+        precision mediump float;
+        #endif
+
+        attribute vec2 quad;
+        varying vec2 index;
+
+        /**
+         * Caclul de la position d'un des sommets d'un carré de la même taille que le canevas.
+         * La carte graphique va faire une interpolation sur l'index.
+         * Le fragment shader pourra récupérer l'index de la particule associé à son fragment.
+         */
+        void main() {
+                index = (quad+1.0) / 2.0;
+                gl_Position = vec4(quad, 0, 1);
+        }
+
+
+    </script>
+
+    <script id="update-fragment-shader" type="x-shader/x-fragment">
+        #ifdef GL_ES
+        precision mediump float;
+        #endif
+
+        uniform sampler2D positions;
+        uniform vec2 canevas_size;
+        varying vec2 index;
+
+        const float BASE = 255.0;
+        const float OFFSET = BASE * BASE / 2.0;
+
+        /**
+         * Converti la représentation de la position sur deux bytes en float.
+         * @param {vec2} chunk - La représentation sur 2 bytes de la positions.
+         * @return {float} la position x ou y de la particule sur le caneva.
+         */
+        float decode(vec2 chunk) {
+            return (dot(chunk, vec2(BASE, BASE * BASE)) - OFFSET);
+        }
+
+        /**
+         * Converti la position donnée sur deux bytes.
+         * @param {float} value - la position x ou y de la particule sur le caneva.
+         * @return {vec2} La représentation sur 2 bytes de la positions.
+         */
+        vec2 encode(float value) {
+            value = value + OFFSET;
+            float x = mod(value, BASE);
+            float y = floor(value / BASE);
+            return vec2(x, y) / BASE;
+        }
+
+        /**
+         * Déplace la particule. Normalement ce déplacement se fait à l'aide d'une texture représentant la vitesse de
+         * chaque particule. Pour des raisons de performance, cette méthode ajoute simplement une vitesse constante de
+         * 2 pixels par rendu vers le bas du canevas. Les particules qui quitte le canevas sont réinitialisées.
+         * @param {vec2} p - La position de la particule donnée est modifié directment.
+         */
+        void updatePosition(inout vec2 p) {
+            p += vec2(0.0, -2.0);
+            if (p.y <= 0.0 || p.x < 0.0 || p.x > canevas_size.x) {
+                p.y = mod(p.y, canevas_size.y);
+                p.x = mod(p.x, canevas_size.x);
+            }
+        }
+
+        void main() {
+            vec4 psample = texture2D(positions, index);
+            vec2 p = vec2(decode(psample.rg), decode(psample.ba));
+            updatePosition(p);
+            gl_FragColor = vec4(encode(p.x), encode(p.y));
+        }
+
+
+    </script>
+
+    <script id="draw-vertex-shader" type="x-shader/x-vertex">
+        #ifdef GL_ES
+        precision mediump float;
+        #endif
+
+        attribute vec2 index;
+        uniform sampler2D positions;
+        uniform vec2 texture_size;
+        uniform vec2 canevas_size;
+        uniform float pSize;
+
+        const float BASE = 255.0;
+        const float OFFSET = BASE * BASE / 2.0;
+
+        /**
+         * Converti la représentation de la position sur deux bytes en float.
+         * @param {vec2} chunk - La représentation sur 2 bytes de la positions.
+         * @return {float} la position x ou y de la particule sur le caneva.
+         */
+        float decode(vec2 chunk) {
+           return (dot(chunk, vec2(BASE, BASE * BASE)) - OFFSET);
+        }
+
+        /**
+         * Chaque particule est retrouvée à l'aide de l'index en attribut.
+         * Sa position est ensuite déterminé puis envoyé au fragment shader pour y être dessinée.
+         */
+        void main() {
+            vec4 psample = texture2D(positions, index / texture_size);
+            vec2 p = vec2(decode(psample.rg), decode(psample.ba));
+            gl_Position = vec4(p / canevas_size * 2.0 - 1.0, 0, 1);
+            gl_PointSize = pSize;
+        }
+
+
+    </script>
+
+    <script id="draw-fragment-shader" type="x-shader/x-fragment">
+        #ifdef GL_ES
+        precision mediump float;
+        #endif
+
+        uniform vec4 color;
+
+        //Dessine le canevas à l'écran.
+        void main() {
+            gl_FragColor = color;
+        }
+
+
+    </script>
+
+    <script>
+
+        // Paramètres définis en dur.
+        var c_height = 800;
+        var c_width = 1000;
+        var particuleCount = 1024 * 16;
+        var pSize = 3;
+        var color = [0.2, 0.5, 1, 0.9];
+        var BASE = 255;
+
+        // Paramètres caclulés dynamiquement.
+        var canevas_size = new Float32Array([c_width, c_height]);
+        var t_width = Math.ceil(Math.sqrt(particuleCount));
+        var t_height = Math.floor(Math.sqrt(particuleCount));
+        var texture_size = new Float32Array([t_width, t_height]);
+
+        // Variables pour le stockage des informations nécessaires aux variables passées en attribut.
+        var indexes = [];
+        var quad = [];
+        var indexBuffer = null;
+        var quadBuffer = null;
+
+        // Paramètres pour la gestion des deux programmes contenant les shaders.
+        var progList = [];
+        var ptr = new Object();
+        var rttFrameBuffer = null;
+        var rttTextureTab = [];
+        var nonUpdatedTextureIndex = 0;
+        var updatedTextureIndex = 1;
+
+        // Paramètre pour le calcule des Fps.
+        var timeNow = 0;
+        var fps = 0;
+        var timeLast = 0;
+
+        /**
+         * Converti la position donnée sur deux bytes.
+         * @param {float} value - la position x ou y de la particule sur le caneva.
+         * @return {vec2} La représentation sur 2 bytes de la positions.
+         */
+        function encode(value) {
+            var b = BASE;
+            var pair = [
+                Math.floor((value % b) / b * 255),
+                Math.floor(Math.floor(value / b) / b * 255)
+            ];
+            return pair;
+        }
+
+        /**
+         * Initialise une texture de stockage des particules et une texture vide.
+         */
+        function initTextures() {
+            initParticulesTexture();
+            initBlankTexture();
+        }
+
+        /**
+         * Initialise une texture à l'aide d'un tableau où des particules sont placées aléatoirement.
+         */
+        function initParticulesTexture() {
+            var rgbaP = new Uint8Array(t_width * t_height * 4);
+            var i, px, py;
+            for (var y = 0; y < t_height; y++) {
+                for (var x = 0; x < t_width; x++) {
+                    i = y * t_width * 4 + x * 4;
+                    px = encode(Math.random() * c_width);
+                    py = encode(Math.random() * c_height);
+                    rgbaP[i + 0] = px[0];
+                    rgbaP[i + 1] = px[1];
+                    rgbaP[i + 2] = py[0];
+                    rgbaP[i + 3] = py[1];
+                }
+            }
+            glContext.activeTexture(glContext.TEXTURE0);
+            glContext.bindTexture(glContext.TEXTURE_2D, rttTextureTab[updatedTextureIndex]);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_S, glContext.CLAMP_TO_EDGE);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_T, glContext.CLAMP_TO_EDGE);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MIN_FILTER, glContext.NEAREST);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MAG_FILTER, glContext.NEAREST);
+            glContext.texImage2D(glContext.TEXTURE_2D, 0, glContext.RGBA, t_width, t_height, 0, glContext.RGBA, glContext.UNSIGNED_BYTE, rgbaP);
+        }
+
+        /**
+         * Initialise une texture vide.
+         */
+        function initBlankTexture() {
+            glContext.activeTexture(glContext.TEXTURE0);
+            glContext.bindTexture(glContext.TEXTURE_2D, rttTextureTab[nonUpdatedTextureIndex]);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_S, glContext.CLAMP_TO_EDGE);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_T, glContext.CLAMP_TO_EDGE);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MIN_FILTER, glContext.NEAREST);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MAG_FILTER, glContext.NEAREST);
+            glContext.texImage2D(glContext.TEXTURE_2D, 0, glContext.RGBA, t_width, t_height, 0, glContext.RGBA, glContext.UNSIGNED_BYTE, null);
+        }
+
+        /**
+         * Fonction de rendu.
+         */
+        function drawScene() {
+
+            computeFps();
+
+            // ******************************************************************************************
+            // *****                                                                                *****
+            // *****               Caclul des positions des particules                              *****
+            // *****                                                                                *****
+            // ******************************************************************************************
+
+            glContext.useProgram(progList[0]);
+            glContext.viewport(0, 0, t_width, t_height);
+
+            // Le framebuffer est lié context et la texture non mise à jour est liée au frambuffer.
+            glContext.bindFramebuffer(glContext.FRAMEBUFFER, rttFrameBuffer);
+            glContext.framebufferTexture2D(glContext.FRAMEBUFFER, glContext.COLOR_ATTACHMENT0, glContext.TEXTURE_2D, rttTextureTab[nonUpdatedTextureIndex], 0);
+            // La texture mise à jour est copiée dans la variable uPositions0.
+            glContext.activeTexture(glContext.TEXTURE0);
+            glContext.bindTexture(glContext.TEXTURE_2D, rttTextureTab[updatedTextureIndex]);
+            glContext.uniform1i(ptr.uPositions0, 0);
+
+            // Instanciation des autres paramètres des shaders.
+            glContext.bindBuffer(glContext.ARRAY_BUFFER, quadBuffer);
+            glContext.vertexAttribPointer(ptr.aQuad0, 2, glContext.FLOAT, false, 0, 0);
+            glContext.uniform2fv(ptr.uCanevas_Size0, this.canevas_size);
+
+            // Le mode de dessin TRIANGLE_STRIP permet l'interpolation de la variable index intern aux shaders.
+            glContext.drawArrays(glContext.TRIANGLE_STRIP, 0, quad.length / 2);
+
+
+            swichtTexturesIndex();
+
+            // ******************************************************************************************
+            // *****                                                                                *****
+            // *****               Dessine sur le canevas                                           *****
+            // *****                                                                                *****
+            // ******************************************************************************************
+
+            // Le framebuffer est enlevé du contexte. Le rendu se fait dans le canevas.
+            glContext.bindFramebuffer(glContext.FRAMEBUFFER, null);
+
+            glContext.useProgram(progList[1]);
+            glContext.viewport(0, 0, c_width, c_height);
+            glContext.clearColor(0, 0, 0, 1); //Noir profond
+            glContext.clear(glContext.COLOR_BUFFER_BIT);
+
+            // La texture mise à jour par le programme précedent est copiée dans la variable uPositions1.
+            glContext.activeTexture(glContext.TEXTURE0);
+            glContext.bindTexture(glContext.TEXTURE_2D, rttTextureTab[updatedTextureIndex]);
+            glContext.uniform1i(ptr.uPositions1, 0);
+
+            // Instanciation des autres paramètres des shaders.
+            glContext.bindBuffer(glContext.ARRAY_BUFFER, indexBuffer);
+            glContext.vertexAttribPointer(ptr.aIndex1, 2, glContext.FLOAT, false, 0, 0);
+            glContext.uniform2fv(ptr.uTexture_Size1, texture_size);
+            glContext.uniform2fv(ptr.uCanevas_Size1, canevas_size);
+            glContext.uniform1f(ptr.uPSize1, pSize);
+            glContext.uniform4fv(ptr.uColor1, this.color);
+
+            // Les particules sont dessinés par un point.
+            glContext.drawArrays(glContext.POINTS, 0, particuleCount);
+        }
+
+        /**
+         * Echange les deux textures de rendu.
+         */
+        function swichtTexturesIndex() {
+            if (nonUpdatedTextureIndex == 0) {
+                updatedTextureIndex = 0;
+                nonUpdatedTextureIndex = 1;
+            } else {
+                updatedTextureIndex = 1;
+                nonUpdatedTextureIndex = 0;
+            }
+        }
+        function swichtTextures() {
+            var temp = rttTextureTab[0];
+            rttTextureTab[0]=rttTextureTab[1];
+            rttTextureTab[1]=temp;
+        }
+
+        /**
+         * Création des deux programmes de rendu et association de leur shaders respectifs.
+         */
+        function initProgramms() {
+
+            /*******************************************
+             * Creation du programme de caclul des positions
+             *******************************************/
+
+            var vertexShader0 = getTextContent("update-vertex-shader");
+            var fragmentShader0 = getTextContent("update-fragment-shader");
+            progList[0] = createProgram(glContext, vertexShader0, fragmentShader0);
+
+            /*******************************************
+             * Creation du programme de rendu
+             *******************************************/
+
+            var vertexShader1 = getTextContent("draw-vertex-shader");
+            var fragmentShader1 = getTextContent("draw-fragment-shader");
+            progList[1] = createProgram(glContext, vertexShader1, fragmentShader1);
+
+            initShaderParameters();
+        }
+
+        /**
+         * Instanciation des ponts entre les variables glsl et les variables javascript.
+         */
+        function initShaderParameters() {
+
+            /*******************************************
+             * Instantiations des pointeurs pour le programme de calcul
+             *******************************************/
+
+            ptr.aQuad0 = glContext.getAttribLocation(progList[0], "quad");
+            glContext.enableVertexAttribArray(progList[0].aQuad0);
+            ptr.uPositions0 = glContext.getUniformLocation(progList[0], "positions");
+            ptr.uCanevas_Size0 = glContext.getUniformLocation(progList[0], "canevas_size");
+
+            /*******************************************
+             * Instantiations des pointeurs pour le programme de dessin
+             *******************************************/
+
+            ptr.aIndex1 = glContext.getAttribLocation(progList[1], "index");
+            glContext.enableVertexAttribArray(progList[1].aIndex1);
+            ptr.uPositions1 = glContext.getUniformLocation(progList[1], "positions");
+            ptr.uTexture_Size1 = glContext.getUniformLocation(progList[1], "texture_size");
+            ptr.uCanevas_Size1 = glContext.getUniformLocation(progList[1], "canevas_size");
+            ptr.uPSize1 = glContext.getUniformLocation(progList[1], "pSize");
+            ptr.uColor1 = glContext.getUniformLocation(progList[1], "color");
+        }
+
+        /**
+         * Créations des buffers et des textures.
+         */
+        function createTexturesAndBuffers() {
+            indexBuffer = glContext.createBuffer();
+            quadBuffer = glContext.createBuffer();
+            rttTextureTab = [glContext.createTexture(), glContext.createTexture()];
+        }
+
+        /**
+         * Création du buffer de rendu.
+         */
+        function createFramebuffer() {
+            rttFrameBuffer = glContext.createFramebuffer();
+        }
+
+        /**
+         * Initialisation des buffers.
+         */
+        function initBuffers() {
+            quad = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
+            indexes = new Float32Array(t_width * t_height * 2);
+            for (var y = 0; y < t_height; y++) {
+                for (var x = 0; x < t_width; x++) {
+                    var i = y * t_width * 2 + x * 2;
+                    indexes[i + 0] = x;
+                    indexes[i + 1] = y;
+                }
+            }
+            glContext.bindBuffer(glContext.ARRAY_BUFFER, quadBuffer);
+            glContext.bufferData(glContext.ARRAY_BUFFER, quad, glContext.STATIC_DRAW);
+            glContext.bindBuffer(glContext.ARRAY_BUFFER, indexBuffer);
+            glContext.bufferData(glContext.ARRAY_BUFFER, indexes, glContext.STATIC_DRAW);
+        }
+        /**
+         * Initialisation des composants puis lancement de la boucle de rendu.
+         */
+        function initWebGL() {
+            glContext = getGLContext('webgl-canvas');
+            initProgramms();
+            createFramebuffer();
+            createTexturesAndBuffers();
+            initTextures();
+            initBuffers();
+            renderLoop();
+        }
+
+        /*******************************************
+         * Gestion de l'interface utilisateur
+         *******************************************/
+
+        /**
+         * Fonction de rendu.
+         */
+        function parseColor(color) {
+            var tempColors = /#(..)(..)(..)/.exec(color).slice(1).map(function (x) {
+                return parseInt(x, 16) / 255;
+            })
+            tempColors.push(1);
+            this.color = tempColors;
+        }
+
+        /**
+         * Modifie le nombre de particule par rapport au facteur donné et l'affiche.
+         * @param {int} factor - Le facteur de multiplication du nombre de particule.
+         */
+        function changeParticlesCount(factor) {
+            var virtualParticleCount = Math.max(1, particuleCount * factor);
+            t_width = Math.ceil(Math.sqrt(virtualParticleCount));
+            t_height = Math.floor(Math.sqrt(virtualParticleCount));
+            particuleCount = t_width * t_height;
+            texture_size = new Float32Array([t_width, t_height]);
+
+            //Met à jour l'affiche
+            document.getElementById("particuleCount").innerHTML = particuleCount.toString().replace(/(\d)(?=(\d{3})+$)/g, '$1,');
+
+            //Met à jour la taille et le contenu des buffers et textures.
+            initTextures();
+            initBuffers();
+        }
+
+        /**
+         * Modifie la taille du rendu des particules et modifie l'affichage.
+         * @param {int} value - Longueur du coté du carré représentant une particule.
+         */
+        function changeParticuleSize(value) {
+            pSize = value;
+            document.getElementById("pSize").innerHTML = pSize
+        }
+
+        /**
+         * Calcul et affiche le nombre d'image affichée par seconde.
+         */
+        function computeFps() {
+            timeNow = new Date().getTime();
+            fps++;
+            if (timeNow - timeLast >= 1000) {
+                document.getElementById("FPS").innerHTML = Number(fps * 1000.0 / (timeNow - timeLast)).toPrecision(2);
+                timeLast = timeNow;
+                fps = 0;
+            }
+        }
+
+    </script>
+
+</head>
+<body onload="initWebGL()">
+
+<div>
+    <p>
+        Couleur des particules: <input id="color" type="color" value="#249EFF" onchange="parseColor(value)"/><br/>
+        Taille des particules = <label id="pSize">3</label> <br/>
+        1 <input type="range" id="pSizeSlider" step="1" min="1" max="6" value="3"
+                 onChange="changeParticuleSize(value);">6<br/>
+        Nombre de particules:
+        <button class="more" onclick="changeParticlesCount(2)">++</button>
+        <button class="less" onclick="changeParticlesCount(0.5)">--</button>
+        <br/>
+        Simulation de <span id="particuleCount">16,384</span> particules à <span id="FPS">___</span> FPS.<br/>
+    </p>
+</div>
+<canvas id="webgl-canvas" width="1000" height="800">
+    HTML5 is not supported
+</canvas>
+</body>
+</html>

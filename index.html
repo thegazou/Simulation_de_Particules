@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <script src="js/commonFunctions.js"></script>
+    <link rel="stylesheet" href="css/gobron_stylesheet.css">
+    <style>
+        a:link {
+            color: green;
+            background-color: transparent;
+            text-decoration: none;
+        }
+        a:visited {
+            color: pink;
+            background-color: transparent;
+            text-decoration: none;
+        }
+        a:hover {
+            color: red;
+            background-color: transparent;
+            text-decoration: underline;
+        }
+        a:active {
+            color: yellow;
+            background-color: transparent;
+            text-decoration: underline;
+        }
+        ul {
+            list-style-image: url("ressources/starsolid.gif");
+        }
+    </style>
+</head>
+<body>
+<script>displayTitle("Simulations d'un champs de Particules", 1, 1, 1, 1, 1, 1, 1);</script>
+</br>
+<p>Tous les calculs sont effectués sur la carte graphique.</p>
+<p>Choisissez l'itération que vous souhaitez tester.</p>
+<ul>
+    <li><a href="/WebGl/iterations/no_velocity.html">Vitesse commune à toutes les particules</a></li>
+    <li><a href="/WebGl/iterations/velocity.html">Vitesse propre à chaques particules</a></li>
+    <li><a href="/WebGl/iterations/velocity_blend.html">Blending</a></li>
+    <li><a href="/WebGl/iterations/velocity_blend_resize.html">Resizable</a></li>
+</ul>
+
+</body>
+</html>

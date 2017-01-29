@@ -2,9 +2,8 @@
 <html lang="fr">
 <head>
     <meta charset="utf-8"/>
-    <link rel="stylesheet" href="css/stylesheet.css">
-    <script src="js/commonFunctions.js"></script>
-    <script src="js/webglTools.js"></script>
+    <link type="text/css" rel="stylesheet" href="../css/overlay_full_screen.css">
+    <script src="../js/webglTools.js"></script>
 
     <script id="update-vertex-shader" type="x-shader/x-vertex">
         #ifdef GL_ES
@@ -158,8 +157,8 @@
     <script>
 
         // Paramètres définis en dur.
-        var c_height = 600;
-        var c_width = 800;
+        var c_height = 760;
+        var c_width = 1920;
         var particuleCount = 1024 * 16;
         var pSize = 3;
         var color = [0.2, 0.5, 1, 0.9];
@@ -290,7 +289,7 @@
             // *****                                                                                *****
             // ******************************************************************************************
 
-
+            glContext.disable(glContext.BLEND);
             glContext.useProgram(progList[0]);
             glContext.viewport(0, 0, t_width, t_height);
             updatedMode=0;
@@ -341,6 +340,8 @@
             // *****                                                                                *****
             // ******************************************************************************************
 
+            glContext.enable(glContext.BLEND);
+            glContext.blendFunc(glContext.SRC_ALPHA, glContext.ONE);
             // Le framebuffer est enlevé du contexte. Le rendu se fait dans le canevas.
             glContext.bindFramebuffer(glContext.FRAMEBUFFER, null);
 
@@ -365,6 +366,7 @@
 
             // Les particules sont dessinés par un point.
             glContext.drawArrays(glContext.POINTS, 0, particuleCount);
+            //glContext.flush();
         }
 
         /**
@@ -549,25 +551,23 @@
     </script>
 
 </head>
-<body onload="initWebGL()">
-<script>displayTitle("Simulation de particules GPGP par Nicolas Gonin", 1, 1, 1, 1, 1, 1, 1);</script>
-<section>
-    <div class="controls">
-        <p>
-            Couleur des particules: <input id="color" type="color" value="#249EFF" onchange="parseColor(value)"/><br/>
-            Taille des particules = <label id="pSize">3</label> <br/>
-            1 <input type="range" id="pSizeSlider" step="1" min="1" max="6" value="3"
-                     onChange="changeParticuleSize(value);">6<br/>
-            Nombre de particules:
+<body onload="initWebGL()"  >
+<div class="container">
+    <div id="canvas">
+        <canvas id="webgl-canvas" width="1910" height="970">
+            HTML5 is not supported
+        </canvas>
+    </div>
+    <div id="overlay">
+        <div id="line1">Couleur des particules: <input id="color" type="color" value="#249EFF" onchange="parseColor(value)"/></div>
+        <div id="line2">Taille des particules = <label id="pSize">3</label></div>
+        <div id="line3">1 <input type="range" id="pSizeSlider" step="1" min="1" max="5" value="3" onChange="changeParticuleSize(value);">6 </div>
+        <div id="line4"> Nombre de particules:
             <button class="more" onclick="changeParticlesCount(2)">++</button>
             <button class="less" onclick="changeParticlesCount(0.5)">--</button>
-            <br/>
-            Simulation de <span id="particuleCount">16,384</span> particules à <span id="FPS">___</span> FPS.<br/>
-        </p>
+        </div>
+        <div> Simulation de <span id="particuleCount">16,384</span> particules à <span id="FPS">___</span> FPS.</div>
     </div>
-    <canvas id="webgl-canvas" width="800" height="600">
-        HTML5 is not supported
-    </canvas>
-</section>
+</div>
 </body>
 </html>
