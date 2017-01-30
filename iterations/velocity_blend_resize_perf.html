@@ -25,10 +25,6 @@
                 gl_Position = vec4(quad, 0, 1);
         }
 
-
-
-
-
     </script>
 
     <script id="update-fragment-shader" type="x-shader/x-fragment">
@@ -87,7 +83,6 @@
             }
         }
 
-
         void main() {
             vec4 psample = texture2D(positions, index);
             vec4 vsample = texture2D(velocities, index);
@@ -105,7 +100,6 @@
             }
             gl_FragColor = vec4(encode(result.x, currentScale), encode(result.y, currentScale));
         }
-
 
     </script>
 
@@ -165,18 +159,26 @@
         // Paramètres définis par la fonction initGlobalVariables()
         var c_height = 0;
         var c_width = 0;
-        var particuleCount = 0;
+        var startingParticuleCount = 0;
         var pSize = 0;
         var color = null;
         var applyBlending = false;
+        var startingParticuleCountPower = 0;
+        var isPowerTextures = false;
+
+        // Constantes
         var BASE = 255;
+        var PARTICULES_COUNT_UPPER_BOUND = 67200000;
+        var PARTICULES_POWER_UPPER_BOUND = 13;
 
         // Variables utilitaires caclulées en fonction des variables ci-dessus.
+        var particuleCount = 0;
         var canevas_size = null;
         var t_width = 0;
         var t_height = 0;
         var texture_size = null;
         var scale = 0;
+        var particuleCountPower = 0;
 
         // Variables pour le stockage des informations nécessaires aux variables passées en attribut.
         var indexBuffer = null;
@@ -351,15 +353,35 @@
         /**
          * Assigne les variables globales à partir des éléments html ou des valeurs choisi à la main.
          * Ajuste les controles utilisateurs proprement lors d'un refresh de la page web.
+         * Le programmeur peut modifier ici les variables globales.
+         * isPowerTextures définit si les cotés des textures seront une puissance de 2.
+         * startingParticuleCountPower correspont à l'xposant pour le calcule du nombre de particule avec des textures en puissance de 2.
+         * startingParticuleCount correspond au nombre de particules mais il sera ajusté de sorte à ce que la texture soit carrée.
+         * pSize correspond à la largeur des particules en pixel.
+         * color correspond à la coueur des particules.
+         * applyBlenind permet de choisir si le blending est actif ou non.
+         * glContext.blendFunc permet de modifier la fonction de blending utilisée.
          */
         function initGlobalVariables() {
-            particuleCount = 1024 * 16;
+
+            // ###################
+            // Paramètres initiaux modifibles par le programmeur.
+            isPowerTextures = true;
+            startingParticuleCountPower = 8;
+            startingParticuleCount = 1024 * 32;
             pSize = 3;
             color = [36.0, 158.0, 255.0, 1.0];
             applyBlending = true;
-            glContext.blendFunc(glContext.SRC_ALPHA, glContext.ONE); //function de blending
+            glContext.blendFunc(glContext.SRC_ALPHA, glContext.ONE);
+            // ###################
 
-            document.getElementById("applyBlending").checked = true;
+            particuleCountPower = startingParticuleCountPower;
+            if (isPowerTextures)
+                particuleCount = Math.pow(Math.pow(2, particuleCountPower), 2);
+            else
+                particuleCount = startingParticuleCount;
+            document.getElementById("isPowerTextures").checked = isPowerTextures;
+            document.getElementById("applyBlending").checked = applyBlending;
             document.getElementById("particuleCount").innerHTML = particuleCount.toString().replace(/(\d)(?=(\d{3})+$)/g, '$1,');
             document.getElementById("pSizeSlider").value = pSize;
             document.getElementById("pSize").value = pSize;
@@ -503,38 +525,31 @@
                     rgbaV[i + 3] = vy[1];
                 }
             }
-            glContext.bindTexture(glContext.TEXTURE_2D, rttTextureTab[updatedParticlesTextureIndex]);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_S, glContext.CLAMP_TO_EDGE);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_T, glContext.CLAMP_TO_EDGE);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MIN_FILTER, glContext.NEAREST);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MAG_FILTER, glContext.NEAREST);
-            glContext.texImage2D(glContext.TEXTURE_2D, 0, glContext.RGBA, t_width, t_height, 0, glContext.RGBA, glContext.UNSIGNED_BYTE, rgbaP);
-            glContext.bindTexture(glContext.TEXTURE_2D, rttTextureTab[updatedVelocitiesTextureIndex]);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_S, glContext.CLAMP_TO_EDGE);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_T, glContext.CLAMP_TO_EDGE);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MIN_FILTER, glContext.NEAREST);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MAG_FILTER, glContext.NEAREST);
-            glContext.texImage2D(glContext.TEXTURE_2D, 0, glContext.RGBA, t_width, t_height, 0, glContext.RGBA, glContext.UNSIGNED_BYTE, rgbaV);
+            bindTexture(updatedParticlesTextureIndex, rgbaP);
+            bindTexture(updatedVelocitiesTextureIndex, rgbaV);
         }
 
         /**
          * Initialise deux textures vides.
          */
         function initBlankTexture() {
-            glContext.bindTexture(glContext.TEXTURE_2D, rttTextureTab[nonUpdatedParticlesTextureIndex]);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_S, glContext.CLAMP_TO_EDGE);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_T, glContext.CLAMP_TO_EDGE);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MIN_FILTER, glContext.NEAREST);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MAG_FILTER, glContext.NEAREST);
-            glContext.texImage2D(glContext.TEXTURE_2D, 0, glContext.RGBA, t_width, t_height, 0, glContext.RGBA, glContext.UNSIGNED_BYTE, null);
-            glContext.bindTexture(glContext.TEXTURE_2D, rttTextureTab[nonUpdatedVelocitiesTextureIndex]);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_S, glContext.CLAMP_TO_EDGE);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_T, glContext.CLAMP_TO_EDGE);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MIN_FILTER, glContext.NEAREST);
-            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MAG_FILTER, glContext.NEAREST);
-            glContext.texImage2D(glContext.TEXTURE_2D, 0, glContext.RGBA, t_width, t_height, 0, glContext.RGBA, glContext.UNSIGNED_BYTE, null);
+            bindTexture(nonUpdatedParticlesTextureIndex, null);
+            bindTexture(nonUpdatedVelocitiesTextureIndex, null);
         }
 
+        /**
+         * initialistion d'une texture à l'aide d'un tableau.
+         * @param {int} textureIndex - L'index du tableau rttTextureTab à lier.
+         * @param {Uint8Array} data - Tableau de int.
+         */
+        function bindTexture(textureIndex, data) {
+            glContext.bindTexture(glContext.TEXTURE_2D, rttTextureTab[textureIndex]);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_S, glContext.CLAMP_TO_EDGE);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_T, glContext.CLAMP_TO_EDGE);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MIN_FILTER, glContext.NEAREST);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MAG_FILTER, glContext.NEAREST);
+            glContext.texImage2D(glContext.TEXTURE_2D, 0, glContext.RGBA, t_width, t_height, 0, glContext.RGBA, glContext.UNSIGNED_BYTE, data);
+        }
 
         // ******************************************************************************************
         // *****                                                                                *****
@@ -547,10 +562,33 @@
          * @param {int} factor - Le facteur de multiplication du nombre de particule.
          */
         function changeParticlesCount(factor) {
-            var virtualParticleCount = Math.max(1, particuleCount * factor);
-            t_width = Math.ceil(Math.sqrt(virtualParticleCount));
-            t_height = Math.floor(Math.sqrt(virtualParticleCount));
-            particuleCount = t_width * t_height;
+            if (isPowerTextures == true) {
+                if (factor < 1)
+                    particuleCountPower > 1 ? particuleCountPower-- : particuleCountPower;
+                else if (factor > 1) {
+                    if (particuleCountPower < PARTICULES_POWER_UPPER_BOUND)
+                        particuleCountPower++
+                    else
+                        return;
+                }
+                else
+                    particuleCountPower = startingParticuleCountPower;
+                particuleCount = Math.pow(Math.pow(2, particuleCountPower), 2);
+                t_width = Math.sqrt(particuleCount);
+                t_height = Math.sqrt(particuleCount);
+            } else {
+                var virtualParticleCount;
+                if (factor == 1)
+                    virtualParticleCount = startingParticuleCount;
+                else {
+                    virtualParticleCount = Math.max(1, particuleCount * factor);
+                    if (virtualParticleCount > PARTICULES_COUNT_UPPER_BOUND)
+                        return;
+                }
+                t_width = Math.ceil(Math.sqrt(virtualParticleCount));
+                t_height = Math.floor(Math.sqrt(virtualParticleCount));
+                particuleCount = t_width * t_height;
+            }
             texture_size = new Float32Array([t_width, t_height]);
 
             //Met à jour l'affiche
@@ -642,10 +680,18 @@
         }
 
         /**
-         * Compare la taille du canevas avec la taille de son conteneur et modifie la taille du canevas en conséquence.
+         * Active ou désactive le blending des particules
          */
         function changeBlending() {
             applyBlending = !applyBlending;
+        }
+
+        /**
+         * Active ou désactive le changement du nombre de particules par palier de 2.
+         */
+        function changeParticlesCountProperty() {
+            isPowerTextures = !isPowerTextures;
+            changeParticlesCount(1);
         }
 
     </script>
@@ -662,15 +708,19 @@
         <div id="line1">Couleur des particules: <input id="color" type="color" value="#249EFF"
                                                        onchange="parseColor(value)"/></div>
         <div id="line2">Taille des particules = <label id="pSize">3</label></div>
-        <div id="line3"> <label>3</label><input type="range" id="pSizeSlider" step="1" min="1" max="5" value="3"
-                                 onChange="changeParticuleSize(value);">6
+        <div id="line3"><label>1</label><input type="range" id="pSizeSlider" step="1" min="1" max="5"
+                                               onChange="changeParticuleSize(value);">5
         </div>
         <div id="line4"> Nombre de particules:
             <button class="more" onclick="changeParticlesCount(2)">++</button>
             <button class="less" onclick="changeParticlesCount(0.5)">--</button>
         </div>
-        <div id="line5"><input type="checkbox" id="applyBlending" onclick="changeBlending()"> Blending</div>
-        <div> Simulation de <span id="particuleCount">16,384</span> particules à <span id="FPS">___</span> FPS.</div>
+        <div id="line5">
+            <input type="checkbox" id="applyBlending" onclick="changeBlending()"> Blending
+            <input type="checkbox" id="isPowerTextures" onclick="changeParticlesCountProperty()"> Increment in power of
+            2
+        </div>
+        <div> Simulation de <span id="particuleCount">______</span> particules à <span id="FPS">___</span> FPS.</div>
     </div>
 </div>
 </body>

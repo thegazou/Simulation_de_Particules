@@ -11,6 +11,7 @@
 }
 #canvas {
     position: fixed;
+    display: inline-block;
     z-index: 8;    /* position this canvas at bottom of the other one */
 }
 
@@ -23,6 +24,7 @@
     background-color: rgba(0, 0, 0, 0.8);
     color: white;
     padding: 2em;
+    overflow: hidden;
 }
 
 #line1{
@@ -43,6 +45,7 @@
  }
  #line5{
      height: 2em;
+
  }
  #particuleCount
  {
