@@ -8,13 +8,13 @@ var touched = false,
 
 function track_init( e ) {
 		// set-up touch interaction
-		document.addEventListener( 'touchstart', track_touch_start, false );
-		document.addEventListener( 'touchmove', track_touch_move, false );
-		document.addEventListener( 'touchend', track_touch_end, false );
+		document.addEventListener( 'touchstart', track_touch_start, true );
+		document.addEventListener( 'touchmove', track_touch_move, true );
+		document.addEventListener( 'touchend', track_touch_end, true );
 		// set-up mouse interaction
-		document.addEventListener( 'mousedown', track_mouse_down, false );
-		document.addEventListener( 'mousemove', track_mouse_move, false );
-		document.addEventListener( 'mouseup', track_mouse_up, false );
+		document.addEventListener( 'mousedown', track_mouse_down, true );
+		document.addEventListener( 'mousemove', track_mouse_move, true );
+		document.addEventListener( 'mouseup', track_mouse_up, true );
 		
 		tw = window.innerWidth/2;
 		th = window.innerHeight/2;
@@ -95,7 +95,7 @@ function track_mouse_down( event )
 		track_start( event.pageX, event.pageY );
 	}
 	
-	event.preventDefault();
+	//event.preventDefault();
 	return true;
 }
 
@@ -106,7 +106,7 @@ function track_mouse_move(event)
 		track_move2( event.pageX, event.pageY );
 	}
 	
-	event.preventDefault();
+	//event.preventDefault();
 	return true;
 }
 
@@ -117,7 +117,7 @@ function track_mouse_up( event )
 		track_end();
 	}
 	
-	event.preventDefault();
+	//event.preventDefault();
 	return true;
 }
 

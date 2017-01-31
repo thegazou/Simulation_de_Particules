@@ -39,6 +39,8 @@
         uniform vec2 canevas_size;
         uniform vec2 mouseCoord;
         uniform bool isMouseDown;
+        uniform float pWind;
+        uniform float pGravity;
         varying vec2 index;
 
         const float BASE = 255.0;
@@ -73,7 +75,7 @@
          * @param {vec2} v - La vitesse de la particule.
          */
         void updatePosition(inout vec2 p, vec2 v) {
-            p += v;
+            p += v + vec2(pWind,0);
 
             //Vérifie si la particule a quitté le canevas et la fait rebondir.
             if (p.x > canevas_size.x) {
@@ -88,6 +90,11 @@
             }
         }
 
+        /**
+         * Applique une rotation sur le vecteur vitesse de la particule actuelle.
+         * @param {vec2} vec - Le vecteur vitesse.
+         * @param {float} rad - L'angle de rotation en radian.
+         */
         vec2 rotate(vec2 vec, float rad) {
             mat2 mat = mat2(
             cos(rad), -sin(rad),
@@ -95,14 +102,18 @@
             );
             return mat * vec;
             }
+
         /**
-         * Modifie la vitesse de la particules
+         * Modifie la vitesse de la particules et la fait rebondir si elle quitte le canevas.
          * @param {vec2} p - La position de la particule.
          * @param {vec2} v - La vitesse de la particule donnée est modifié directment.
          */
         void updateVelocity(vec2 p, inout vec2 v)
         {
+        v -= vec2(0.0,pGravity);
             p += v;
+
+            // Perturbes les particules dans un rayon de 60pixels autour du clique de l'utilisateur.
             if(isMouseDown)
             {
             p.y=canevas_size.y-p.y;
@@ -194,8 +205,9 @@
         uniform vec4 color;
         uniform vec2 texture_size;
         uniform bool useRNGColor;
-
         const vec2 k = vec2(23.1406926327792690,2.6651441426902251);
+
+        //Générateur de nombre aléatoire!
         float rnd7( vec2 uv ) { return fract( cos( mod( 1234567., 1024. * dot(uv,k) ) ) ); }
         float rnd8( vec2 uv ) { return fract( cos( mod( 12345678., 1024. * dot(uv,k) ) ) ); }
         float rnd9( vec2 uv ) { return fract( cos( mod( 123456780., 1024. * dot(uv,k) ) ) ); }
@@ -227,6 +239,8 @@
         var startingParticuleCountPower = 0;
         var isPowerTextures = false;
         var useRngColor = false;
+        var pWind = 0;
+        var pGravity = 0;
 
         // Constantes
         var BASE = 255;
@@ -322,6 +336,8 @@
             glContext.uniform1f(ptr.uScale0, scale);
             glContext.uniform1f(ptr.uIsMouseDown0, touched);
             glContext.uniform2fv(ptr.uMouseCoord0, new Float32Array([touchX, touchY]));
+            glContext.uniform1f(ptr.uPWind0, pWind);
+            glContext.uniform1f(ptr.uPGravity0, pGravity);
 
             // Le mode de dessin TRIANGLE_STRIP permet l'interpolation de la variable varying vec2 index.
             glContext.drawArrays(glContext.TRIANGLE_STRIP, 0, 4); // 4 = quad.size/2
@@ -430,6 +446,8 @@
          * applyBlenind permet de choisir si le blending est actif ou non.
          * useRngColor active l'utilisation de couleurs aléatoires pour les particules.
          * glContext.blendFunc permet de modifier la fonction de blending utilisée.
+         * pWind: vitesse du vent horizontal. [pixel/second]
+         * pGravity: accélération gravitationnelle. [pixel/(frame/second)^2]
          */
         function initGlobalVariables() {
 
@@ -443,6 +461,8 @@
             applyBlending = true;
             glContext.blendFunc(glContext.SRC_ALPHA, glContext.ONE);
             useRngColor = false;
+            pWind = 0;
+            pGravity = 0;
             // ###################
 
             particuleCountPower = startingParticuleCountPower;
@@ -458,6 +478,8 @@
             document.getElementById("pSize").value = pSize;
             document.getElementById("color").value = rgbToHex(color[0], color[1], color[2]);
             parseColor(rgbToHex(color[0], color[1], color[2]));
+            document.getElementById("pWind").value = pWind;
+            document.getElementById("pGravity").value = pGravity;
 
             // Mise à jour de la taille du canevas en fonction de la taille de la fenêtre(div englobante).
             c_width = document.getElementById('container').clientWidth;
@@ -514,6 +536,8 @@
             ptr.uUpdateMode0 = glContext.getUniformLocation(progList[0], "updateMode");
             ptr.uIsMouseDown0 = glContext.getUniformLocation(progList[0], "isMouseDown");
             ptr.uMouseCoord0 = glContext.getUniformLocation(progList[0], "mouseCoord");
+            ptr.uPWind0 = glContext.getUniformLocation(progList[0], "pWind");
+            ptr.uPGravity0 = glContext.getUniformLocation(progList[0], "pGravity");
 
             /*************************************************************
              * Instantiations des pointeurs pour le programme de dessin
@@ -717,6 +741,23 @@
         }
 
         /**
+         * Modifie la perturbation horizontale des particules.
+         * @param {float} value - vitesse du vent horizontal. [pixel/second]
+         */
+        function changeWind(value) {
+            pWind = value;
+        }
+
+        /**
+         * Modifie la gravité.
+         * @param {float} value - accélération gravitationnelle. [pixel/(frame/second)^2]
+         */
+        function changeGravity(value) {
+            pGravity = value;
+        }
+
+
+        /**
          * Calcul et affiche le nombre d'image affichée par seconde.
          * applique un dégradé de vert à rouge en fonction du fps.
          */
@@ -805,6 +846,12 @@
             <input type="checkbox" id="applyBlending" onclick="changeBlending()"> Blending
             <input type="checkbox" id="isPowerTextures" onclick="changeParticlesCountProperty()"> Increment in power of
             2
+        </div>
+        <div classe="perturbations">Wind <input type="range" id="pWind" step="1" min="-4" max="4"
+                                                onChange="changeWind(value);">
+        </div>
+        <div classe="perturbations">Gravity <input type="range" id="pGravity" step="0.001" min="00" max="0.1"
+                                                   onChange="changeGravity(value);">
         </div>
         <div> Simulation de <span id="particuleCount">______</span> particules à <span id="FPS">___</span> FPS.</div>
     </div>
