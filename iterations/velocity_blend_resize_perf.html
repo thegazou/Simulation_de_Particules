@@ -94,7 +94,6 @@
         void updateVelocity(vec2 p, inout vec2 v)
         {
             p += v;
-            v += vec2(0.0, -0.01);
             //Vérifie si la particule a quitté le canevas et la fait rebondir.
             if (p.x > canevas_size.x) {
                 v.x *= -1.0;
