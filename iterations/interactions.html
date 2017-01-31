@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <link type="text/css" rel="stylesheet" href="../css/overlay_full_screen_resizable.css">
+
+    <script src="../js/webglTools.js"></script>
+    <script src="../js/Track.js"></script>
+    <script id="update-vertex-shader" type="x-shader/x-vertex">
+        #ifdef GL_ES
+        precision mediump float;
+        #endif
+
+        attribute vec2 quad;
+        varying vec2 index;
+
+        /**
+         * Caclul de la position d'un des sommets d'un carré de la même taille que le canevas.
+         * La carte graphique va faire une interpolation sur l'index.
+         * Le fragment shader pourra récupérer l'index de la particule associé à son fragment.
+         */
+        void main() {
+                index = (quad+1.0) / 2.0;
+                gl_Position = vec4(quad, 0, 1);
+        }
+
+    </script>
+
+    <script id="update-fragment-shader" type="x-shader/x-fragment">
+        #ifdef GL_ES
+        precision mediump float;
+        #endif
+
+        uniform float scale;
+        uniform int updateMode;
+        uniform sampler2D velocities;
+        uniform sampler2D positions;
+        uniform vec2 canevas_size;
+        uniform vec2 mouseCoord;
+        uniform bool isMouseDown;
+        varying vec2 index;
+
+        const float BASE = 255.0;
+        const float OFFSET = BASE * BASE / 2.0;
+
+        /**
+         * Converti la représentation de la position sur deux bytes en float.
+         * @param {vec2} chunk - La représentation sur 2 bytes de la positions.
+         * @param {float} currentScale - facteur permettant de retrouver la bonne valeure en fonction du contexte.
+         * @return {float} la position x ou y de la particule sur le caneva.
+         */
+        float decode(vec2 chunk, float currentScale) {
+            return (dot(chunk, vec2(BASE, BASE * BASE)) - OFFSET)/currentScale;
+        }
+
+        /**
+         * Converti la position donnée sur deux bytes.
+         * @param {float} value - la position x ou y de la particule sur le caneva.
+         * @param {float} currentScale - facteur permettant d'encoder la valeur en fonction du contexte.
+         * @return {vec2} La représentation sur 2 bytes de la positions.
+         */
+        vec2 encode(float value, float currentScale) {
+            value = value * currentScale + OFFSET;
+            float x = mod(value, BASE);
+            float y = floor(value / BASE);
+            return vec2(x, y) / BASE;
+        }
+
+        /**
+         * Déplace la particule en ajoutant sa vitesse à sa position.
+         * @param {vec2} p - La position de la particule donnée est modifié directment.
+         * @param {vec2} v - La vitesse de la particule.
+         */
+        void updatePosition(inout vec2 p, vec2 v) {
+            p += v;
+
+            //Vérifie si la particule a quitté le canevas et la fait rebondir.
+            if (p.x > canevas_size.x) {
+                p.x = canevas_size.x;
+            } else if (p.x < 0.0) {
+                p.x = 0.0   ;
+            }
+            if (p.y > canevas_size.y) {
+                p.y = canevas_size.y;
+            } else if (p.y < 0.0) {
+                p.y = 0.0;
+            }
+        }
+
+        vec2 rotate(vec2 vec, float rad) {
+            mat2 mat = mat2(
+            cos(rad), -sin(rad),
+            sin(rad), cos(rad)
+            );
+            return mat * vec;
+            }
+        /**
+         * Modifie la vitesse de la particules
+         * @param {vec2} p - La position de la particule.
+         * @param {vec2} v - La vitesse de la particule donnée est modifié directment.
+         */
+        void updateVelocity(vec2 p, inout vec2 v)
+        {
+            p += v;
+            if(isMouseDown)
+            {
+            p.y=canevas_size.y-p.y;
+                vec2 dxy = p - mouseCoord;
+                vec2 nxy = normalize(dxy);
+                float len = length(dxy);
+                if (len < 60.0) {
+                    v -= rotate(nxy/len*3.5, 1.0);
+                }
+            }
+
+            //Vérifie si la particule a quitté le canevas et la fait rebondir.
+            if (p.x > canevas_size.x) {
+                v.x *= -1.0;
+            } else if (p.x < 0.0) {
+                v.x *= -1.0;
+            }
+            if (p.y > canevas_size.y) {
+                v.y *= -1.0;
+            } else if (p.y < 0.0)
+                v.y *= -1.0;
+        }
+
+        void main() {
+            vec4 psample = texture2D(positions, index);
+            vec4 vsample = texture2D(velocities, index);
+            vec2 p = vec2(decode(psample.rg,scale) ,decode(psample.ba,scale));
+            float currentScale = scale * 100.0;
+            vec2 v = vec2(decode(vsample.rg,currentScale), decode(vsample.ba,currentScale));
+
+            vec2 result;
+            if (updateMode == 0) {
+                updatePosition(p, v);
+                result = p;
+                currentScale = scale;
+            } else {
+                updateVelocity(p,v);
+                result = v;
+            }
+            gl_FragColor = vec4(encode(result.x, currentScale), encode(result.y, currentScale));
+        }
+
+    </script>
+
+    <script id="draw-vertex-shader" type="x-shader/x-vertex">
+        #ifdef GL_ES
+        precision mediump float;
+        #endif
+
+        uniform float scale;
+        attribute vec2 index;
+        uniform sampler2D positions;
+        uniform vec2 texture_size;
+        uniform vec2 canevas_size;
+        uniform float pSize;
+
+        varying vec2 index_r;
+        const float BASE = 255.0;
+        const float OFFSET = BASE * BASE / 2.0;
+
+        /**
+         * Converti la représentation de la position sur deux bytes en float.
+         * @param {vec2} chunk - La représentation sur 2 bytes de la positions.
+         * @return {float} la position x ou y de la particule sur le caneva.
+         */
+        float decode(vec2 chunk) {
+           return (dot(chunk, vec2(BASE, BASE * BASE)) - OFFSET)/scale;
+        }
+
+        /**
+         * Chaque particule est retrouvée à l'aide de l'index en attribut.
+         * Sa position est ensuite déterminé puis envoyé au fragment shader pour y être dessinée.
+         */
+        void main() {
+            index_r = index;
+            vec4 psample = texture2D(positions, index / texture_size);
+            vec2 p = vec2(decode(psample.rg), decode(psample.ba));
+            gl_Position = vec4(p / canevas_size * 2.0 - 1.0, 0, 1);
+            gl_PointSize = pSize;
+        }
+
+    </script>
+
+    <script id="draw-fragment-shader" type="x-shader/x-fragment">
+        #ifdef GL_ES
+        precision mediump float;
+        #endif
+        varying vec2 index_r;
+        uniform vec4 color;
+        uniform vec2 texture_size;
+        uniform bool useRNGColor;
+
+        const vec2 k = vec2(23.1406926327792690,2.6651441426902251);
+        float rnd7( vec2 uv ) { return fract( cos( mod( 1234567., 1024. * dot(uv,k) ) ) ); }
+        float rnd8( vec2 uv ) { return fract( cos( mod( 12345678., 1024. * dot(uv,k) ) ) ); }
+        float rnd9( vec2 uv ) { return fract( cos( mod( 123456780., 1024. * dot(uv,k) ) ) ); }
+
+        //Dessine le canevas à l'écran.
+        void main() {
+        if (useRNGColor)
+        {
+            mediump vec2 uv = index_r / texture_size.xy;
+            float r = rnd7(uv);
+            float g = rnd8(uv);
+            float b = rnd9(uv);
+            gl_FragColor = vec4(r,g,b,1.);
+        }else
+            gl_FragColor = color;
+        }
+
+    </script>
+
+    <script>
+
+        // Paramètres définis par la fonction initGlobalVariables()
+        var c_height = 0;
+        var c_width = 0;
+        var startingParticuleCount = 0;
+        var pSize = 0;
+        var color = null;
+        var applyBlending = false;
+        var startingParticuleCountPower = 0;
+        var isPowerTextures = false;
+        var useRngColor = false;
+
+        // Constantes
+        var BASE = 255;
+        var PARTICULES_COUNT_UPPER_BOUND = 67200000;
+        var PARTICULES_POWER_UPPER_BOUND = 13;
+
+        // Variables utilitaires caclulées en fonction des variables ci-dessus.
+        var particuleCount = 0;
+        var canevas_size = null;
+        var t_width = 0;
+        var t_height = 0;
+        var texture_size = null;
+        var scale = 0;
+        var particuleCountPower = 0;
+
+
+        // Variables pour le stockage des informations nécessaires aux variables passées en attribut.
+        var indexBuffer = null;
+        var quadBuffer = null;
+
+        // Variables pour la gestion des deux programmes contenant les shaders.
+        var progList = [];
+        var ptr = new Object();
+        var rttFrameBuffer = null;
+        var rttTextureTab = [];
+        var nonUpdatedParticlesTextureIndex = 0;
+        var updatedParticlesTextureIndex = 1;
+        var nonUpdatedVelocitiesTextureIndex = 2;
+        var updatedVelocitiesTextureIndex = 3;
+        var updatedMode = 0; // 0 => calcul des positions, 1 => calcul des vitesses
+
+        // Variables pour le calcul des fps.
+        var timeNow = 0;
+        var fps = 0;
+        var timeLast = 0;
+
+        /**
+         * Converti la position donnée sur deux bytes.
+         * @param {float} value - la position x ou y de la particule sur le caneva.
+         * @param {float} currentScale - facteur permettant d'encoder la valeur en fonction du contexte.
+         * @return {vec2} La représentation sur 2 bytes de la positions.
+         */
+        function encode(value, currentScale) {
+            var b = BASE;
+            value = value * currentScale + b * b / 2;
+            var pair = [
+                Math.floor((value % b) / b * 255),
+                Math.floor(Math.floor(value / b) / b * 255)
+            ];
+            return pair;
+        }
+
+        /**
+         * Calucle du fps, adaptation de la taille du canevas et fonction de rendu.
+         */
+        function drawScene() {
+
+            computeFps();
+            resize();
+            glContext.clearDepth(1.0);
+            glContext.disable(glContext.DEPTH_TEST);
+
+            // ******************************************************************************************
+            // *****                                                                                *****
+            // *****               Caclul des positions des particules                              *****
+            // *****                                                                                *****
+            // ******************************************************************************************
+
+            glContext.disable(glContext.BLEND);
+            glContext.useProgram(progList[0]);
+            glContext.viewport(0, 0, t_width, t_height);
+            updatedMode = 0;
+            glContext.uniform1i(ptr.uUpdateMode0, updatedMode);
+
+            // Le framebuffer est lié au context et la texture non mise à jour des positions est liée au frambuffer.
+            glContext.bindFramebuffer(glContext.FRAMEBUFFER, rttFrameBuffer);
+            glContext.framebufferTexture2D(glContext.FRAMEBUFFER, glContext.COLOR_ATTACHMENT0, glContext.TEXTURE_2D, rttTextureTab[nonUpdatedParticlesTextureIndex], 0);
+
+            // La texture mise à jour des particules est copiée dans la zone mémoire du GPU pointée par uPositions0.
+            glContext.activeTexture(glContext.TEXTURE0);
+            glContext.bindTexture(glContext.TEXTURE_2D, rttTextureTab[updatedParticlesTextureIndex]);
+            glContext.uniform1i(ptr.uPositions0, 0);
+
+            // La texture mise à jour des vitesses est copiée dans la zone mémoire du GPU pointée par uVelocities0
+            glContext.activeTexture(glContext.TEXTURE1);
+            glContext.bindTexture(glContext.TEXTURE_2D, rttTextureTab[updatedVelocitiesTextureIndex]);
+            glContext.uniform1i(ptr.uVelocities0, 1);
+
+            // Instanciation des autres paramètres des shaders.
+            glContext.bindBuffer(glContext.ARRAY_BUFFER, quadBuffer);
+            glContext.vertexAttribPointer(ptr.aQuad0, 2, glContext.FLOAT, false, 0, 0);
+            glContext.uniform2fv(ptr.uCanevas_Size0, this.canevas_size);
+            glContext.uniform1f(ptr.uScale0, scale);
+            glContext.uniform1f(ptr.uIsMouseDown0, touched);
+            glContext.uniform2fv(ptr.uMouseCoord0, new Float32Array([touchX, touchY]));
+
+            // Le mode de dessin TRIANGLE_STRIP permet l'interpolation de la variable varying vec2 index.
+            glContext.drawArrays(glContext.TRIANGLE_STRIP, 0, 4); // 4 = quad.size/2
+
+            // ******************************************************************************************
+            // *****                                                                                *****
+            // *****               Caclul des vitesses des particules                              *****
+            // *****                                                                                *****
+            // ******************************************************************************************
+
+            updatedMode = 1;
+            glContext.uniform1i(ptr.uUpdateMode0, updatedMode);
+            glContext.bindFramebuffer(glContext.FRAMEBUFFER, rttFrameBuffer);
+            glContext.framebufferTexture2D(glContext.FRAMEBUFFER, glContext.COLOR_ATTACHMENT0, glContext.TEXTURE_2D, rttTextureTab[nonUpdatedVelocitiesTextureIndex], 0);
+
+            // Le mode de dessin TRIANGLE_STRIP permet l'interpolation de la variable index intern aux shaders.
+            glContext.drawArrays(glContext.TRIANGLE_STRIP, 0, 4);
+
+            swichtTexturesIndex();
+
+            // ******************************************************************************************
+            // *****                                                                                *****
+            // *****               Dessine sur le canevas                                           *****
+            // *****                                                                                *****
+            // ******************************************************************************************
+
+            if (applyBlending == true)
+                glContext.enable(glContext.BLEND);
+            // Le framebuffer est enlevé du contexte. Le rendu se fait dans le canevas.
+            glContext.bindFramebuffer(glContext.FRAMEBUFFER, null);
+
+            glContext.useProgram(progList[1]);
+            glContext.viewport(0, 0, c_width, c_height);
+            glContext.clearColor(0, 0, 0, 1); //Noir profond
+            glContext.clear(glContext.COLOR_BUFFER_BIT | glContext.DEPTH_BUFFER_BIT);
+
+            // La texture mise à jour des particules est copiée dans la zone mémoire du GPU pointée par uPositions1.
+            glContext.activeTexture(glContext.TEXTURE0);
+            glContext.bindTexture(glContext.TEXTURE_2D, rttTextureTab[updatedParticlesTextureIndex]);
+            glContext.uniform1i(ptr.uPositions1, 0);
+
+            // Instanciation des autres paramètres des shaders.
+            glContext.bindBuffer(glContext.ARRAY_BUFFER, indexBuffer);
+            glContext.vertexAttribPointer(ptr.aIndex1, 2, glContext.FLOAT, false, 0, 0);
+            glContext.uniform2fv(ptr.uTexture_Size1, texture_size);
+            glContext.uniform2fv(ptr.uCanevas_Size1, canevas_size);
+            glContext.uniform1f(ptr.uPSize1, pSize);
+            glContext.uniform4fv(ptr.uColor1, this.color);
+            glContext.uniform1f(ptr.uScale1, scale);
+            glContext.uniform1f(ptr.uUseRNGColor1, useRngColor);
+            // Les particules sont dessinées par un le mode de dessin POINTS.
+            glContext.drawArrays(glContext.POINTS, 0, particuleCount);
+            glContext.flush();
+        }
+
+        /**
+         * Echange entre les textures mises à jour et celles non mises à jour.
+         */
+        function swichtTexturesIndex() {
+            if (nonUpdatedParticlesTextureIndex == 0) {
+                updatedParticlesTextureIndex = 0;
+                nonUpdatedParticlesTextureIndex = 1;
+            } else {
+                updatedParticlesTextureIndex = 1;
+                nonUpdatedParticlesTextureIndex = 0;
+            }
+            if (nonUpdatedVelocitiesTextureIndex == 2) {
+                updatedVelocitiesTextureIndex = 2;
+                nonUpdatedVelocitiesTextureIndex = 3;
+            } else {
+                updatedVelocitiesTextureIndex = 3;
+                nonUpdatedVelocitiesTextureIndex = 2;
+            }
+        }
+
+        // ******************************************************************************************
+        // *****                                                                                *****
+        // *****                            Initialisation                                      *****
+        // *****                                                                                *****
+        // ******************************************************************************************
+
+        /**
+         * Initialisation des composants puis lancement de la boucle de rendu.
+         */
+        function initWebGL() {
+
+            glContext = getGLContext('webgl-canvas');
+            initGlobalVariables();
+            initProgramms();
+            createFramebuffer();
+            createTexturesAndBuffers();
+            initBuffers();
+            initTextures();
+            renderLoop();
+        }
+
+        /**
+         * Assigne les variables globales à partir des éléments html ou des valeurs choisi à la main.
+         * Ajuste les controles utilisateurs proprement lors d'un refresh de la page web.
+         * Le programmeur peut modifier ici les variables globales.
+         * isPowerTextures définit si les cotés des textures seront une puissance de 2.
+         * startingParticuleCountPower correspont à l'xposant pour le calcule du nombre de particule avec des textures en puissance de 2.
+         * startingParticuleCount correspond au nombre de particules mais il sera ajusté de sorte à ce que la texture soit carrée.
+         * pSize correspond à la largeur des particules en pixel.
+         * color correspond à la coueur des particules.
+         * applyBlenind permet de choisir si le blending est actif ou non.
+         * useRngColor active l'utilisation de couleurs aléatoires pour les particules.
+         * glContext.blendFunc permet de modifier la fonction de blending utilisée.
+         */
+        function initGlobalVariables() {
+
+            // ###################
+            // Paramètres initiaux modifibles par le programmeur.
+            isPowerTextures = true;
+            startingParticuleCountPower = 8;
+            startingParticuleCount = 1024 * 32;
+            pSize = 3;
+            color = [36.0, 158.0, 255.0, 1.0];
+            applyBlending = true;
+            glContext.blendFunc(glContext.SRC_ALPHA, glContext.ONE);
+            useRngColor = false;
+            // ###################
+
+            particuleCountPower = startingParticuleCountPower;
+            if (isPowerTextures)
+                particuleCount = Math.pow(Math.pow(2, particuleCountPower), 2);
+            else
+                particuleCount = startingParticuleCount;
+            document.getElementById("isPowerTextures").checked = isPowerTextures;
+            document.getElementById("applyBlending").checked = applyBlending;
+            document.getElementById("rngColor").checked = useRngColor;
+            document.getElementById("particuleCount").innerHTML = particuleCount.toString().replace(/(\d)(?=(\d{3})+$)/g, '$1,');
+            document.getElementById("pSizeSlider").value = pSize;
+            document.getElementById("pSize").value = pSize;
+            document.getElementById("color").value = rgbToHex(color[0], color[1], color[2]);
+            parseColor(rgbToHex(color[0], color[1], color[2]));
+
+            // Mise à jour de la taille du canevas en fonction de la taille de la fenêtre(div englobante).
+            c_width = document.getElementById('container').clientWidth;
+            c_height = document.getElementById('container').clientHeight;
+            canevas_size = new Float32Array([c_width, c_height]);
+            glContext.canvas.width = c_width;
+            glContext.canvas.height = c_height;
+
+            scale = Math.floor(Math.pow(BASE, 2) / Math.max(c_width, c_height) / 3);
+            t_width = Math.ceil(Math.sqrt(particuleCount));
+            t_height = Math.floor(Math.sqrt(particuleCount));
+            texture_size = new Float32Array([t_width, t_height]);
+        }
+
+        /**
+         * Création des deux programmes de rendu et association de leur shaders respectifs.
+         */
+        function initProgramms() {
+
+            /*******************************************
+             * Creation du programme de calcul
+             *******************************************/
+
+            var vertexShader0 = getTextContent("update-vertex-shader");
+            var fragmentShader0 = getTextContent("update-fragment-shader");
+            progList[0] = createProgram(glContext, vertexShader0, fragmentShader0);
+
+            /*******************************************
+             * Creation du programme de rendu
+             *******************************************/
+
+            var vertexShader1 = getTextContent("draw-vertex-shader");
+            var fragmentShader1 = getTextContent("draw-fragment-shader");
+            progList[1] = createProgram(glContext, vertexShader1, fragmentShader1);
+
+            initShaderParameters();
+        }
+
+        /**
+         * Instanciation des ponts entre les variables glsl et les variables javascript.
+         */
+        function initShaderParameters() {
+
+            /*************************************************************
+             * Instantiations des pointeurs pour le programme de calcul
+             *************************************************************/
+
+            ptr.aQuad0 = glContext.getAttribLocation(progList[0], "quad");
+            glContext.enableVertexAttribArray(progList[0].aQuad0);
+            ptr.uPositions0 = glContext.getUniformLocation(progList[0], "positions");
+            ptr.uVelocities0 = glContext.getUniformLocation(progList[0], "velocities");
+            ptr.uCanevas_Size0 = glContext.getUniformLocation(progList[0], "canevas_size");
+            ptr.uScale0 = glContext.getUniformLocation(progList[0], "scale");
+            ptr.uUpdateMode0 = glContext.getUniformLocation(progList[0], "updateMode");
+            ptr.uIsMouseDown0 = glContext.getUniformLocation(progList[0], "isMouseDown");
+            ptr.uMouseCoord0 = glContext.getUniformLocation(progList[0], "mouseCoord");
+
+            /*************************************************************
+             * Instantiations des pointeurs pour le programme de dessin
+             *************************************************************/
+
+            ptr.aIndex1 = glContext.getAttribLocation(progList[1], "index");
+            glContext.enableVertexAttribArray(progList[1].aIndex1);
+            ptr.uPositions1 = glContext.getUniformLocation(progList[1], "positions");
+            ptr.uTexture_Size1 = glContext.getUniformLocation(progList[1], "texture_size");
+            ptr.uCanevas_Size1 = glContext.getUniformLocation(progList[1], "canevas_size");
+            ptr.uPSize1 = glContext.getUniformLocation(progList[1], "pSize");
+            ptr.uColor1 = glContext.getUniformLocation(progList[1], "color");
+            ptr.uScale1 = glContext.getUniformLocation(progList[1], "scale");
+            ptr.uUseRNGColor1 = glContext.getUniformLocation(progList[1], "useRNGColor")
+        }
+
+        /**
+         * Création du buffer de rendu.
+         */
+        function createFramebuffer() {
+            rttFrameBuffer = glContext.createFramebuffer();
+        }
+
+        /**
+         * Créations des buffers et des textures.
+         */
+        function createTexturesAndBuffers() {
+            indexBuffer = glContext.createBuffer();
+            quadBuffer = glContext.createBuffer();
+            rttTextureTab = [glContext.createTexture(), glContext.createTexture(), glContext.createTexture(), glContext.createTexture()];
+        }
+
+        /**
+         * Initialisation des buffers.
+         */
+        function initBuffers() {
+            var quad = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
+            var indexes = new Float32Array(t_width * t_height * 2);
+            for (var y = 0; y < t_height; y++) {
+                for (var x = 0; x < t_width; x++) {
+                    var i = y * t_width * 2 + x * 2;
+                    indexes[i + 0] = x;
+                    indexes[i + 1] = y;
+                }
+            }
+            glContext.bindBuffer(glContext.ARRAY_BUFFER, quadBuffer);
+            glContext.bufferData(glContext.ARRAY_BUFFER, quad, glContext.STATIC_DRAW);
+            glContext.bindBuffer(glContext.ARRAY_BUFFER, indexBuffer);
+            glContext.bufferData(glContext.ARRAY_BUFFER, indexes, glContext.STATIC_DRAW);
+        }
+
+        /**
+         * Initialise une texture de stockage des positions des particules et une texture vide.
+         * Initialise une texture de stockage des vitesses des particules et une texture vide.
+         */
+        function initTextures() {
+            initParticulesTexture();
+            initBlankTexture();
+        }
+
+        /**
+         * Initialise une texture à l'aide d'un tableau où des particules sont placées aléatoirement.
+         * Initialise une texture à l'aide d'un tableau où des vitesses sont définies aléatoirement.
+         */
+        function initParticulesTexture() {
+            var rgbaP = new Uint8Array(t_width * t_height * 4);
+            var rgbaV = new Uint8Array(t_width * t_height * 4);
+            var i, px, py;
+            for (var y = 0; y < t_height; y++) {
+                for (var x = 0; x < t_width; x++) {
+                    i = y * t_width * 4 + x * 4;
+                    px = encode(Math.random() * c_width, scale);
+                    py = encode(Math.random() * c_height, scale);
+                    vx = encode((Math.random() * 1.0 - 0.5), scale * 100);
+                    vy = encode((Math.random() * 1.5 - 0.5), scale * 100);
+                    rgbaP[i + 0] = px[0];
+                    rgbaP[i + 1] = px[1];
+                    rgbaP[i + 2] = py[0];
+                    rgbaP[i + 3] = py[1];
+                    rgbaV[i + 0] = vx[0];
+                    rgbaV[i + 1] = vx[1];
+                    rgbaV[i + 2] = vy[0];
+                    rgbaV[i + 3] = vy[1];
+                }
+            }
+            bindTexture(updatedParticlesTextureIndex, rgbaP);
+            bindTexture(updatedVelocitiesTextureIndex, rgbaV);
+        }
+
+        /**
+         * Initialise deux textures vides.
+         */
+        function initBlankTexture() {
+            bindTexture(nonUpdatedParticlesTextureIndex, null);
+            bindTexture(nonUpdatedVelocitiesTextureIndex, null);
+        }
+
+        /**
+         * initialistion d'une texture à l'aide d'un tableau.
+         * @param {int} textureIndex - L'index du tableau rttTextureTab à lier.
+         * @param {Uint8Array} data - Tableau de int.
+         */
+        function bindTexture(textureIndex, data) {
+            glContext.bindTexture(glContext.TEXTURE_2D, rttTextureTab[textureIndex]);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_S, glContext.CLAMP_TO_EDGE);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_T, glContext.CLAMP_TO_EDGE);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MIN_FILTER, glContext.NEAREST);
+            glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MAG_FILTER, glContext.NEAREST);
+            glContext.texImage2D(glContext.TEXTURE_2D, 0, glContext.RGBA, t_width, t_height, 0, glContext.RGBA, glContext.UNSIGNED_BYTE, data);
+        }
+
+        // ******************************************************************************************
+        // *****                                                                                *****
+        // *****                 Gestion des intéractions utilisateur                           *****
+        // *****                                                                                *****
+        // ******************************************************************************************
+
+        /**
+         * Modifie le nombre de particule par rapport au facteur donné et l'affiche.
+         * @param {int} factor - Le facteur de multiplication du nombre de particule.
+         */
+        function changeParticlesCount(factor) {
+            if (isPowerTextures == true) {
+                if (factor < 1)
+                    particuleCountPower > 1 ? particuleCountPower-- : particuleCountPower;
+                else if (factor > 1) {
+                    if (particuleCountPower < PARTICULES_POWER_UPPER_BOUND)
+                        particuleCountPower++
+                    else
+                        return;
+                }
+                else
+                    particuleCountPower = startingParticuleCountPower;
+                particuleCount = Math.pow(Math.pow(2, particuleCountPower), 2);
+                t_width = Math.sqrt(particuleCount);
+                t_height = Math.sqrt(particuleCount);
+            } else {
+                var virtualParticleCount;
+                if (factor == 1)
+                    virtualParticleCount = startingParticuleCount;
+                else {
+                    virtualParticleCount = Math.max(1, particuleCount * factor);
+                    if (virtualParticleCount > PARTICULES_COUNT_UPPER_BOUND)
+                        return;
+                }
+                t_width = Math.ceil(Math.sqrt(virtualParticleCount));
+                t_height = Math.floor(Math.sqrt(virtualParticleCount));
+                particuleCount = t_width * t_height;
+            }
+            texture_size = new Float32Array([t_width, t_height]);
+
+            //Met à jour l'affiche
+            document.getElementById("particuleCount").innerHTML = particuleCount.toString().replace(/(\d)(?=(\d{3})+$)/g, '$1,');
+
+            //Met à jour la taille et le contenu des buffers et textures.
+            initTextures();
+            initBuffers();
+        }
+
+        /**
+         * Transforme une coleur codée en format hexadécimal "#xxxxxx" en RGB sur 1 valeur en float.
+         * @param {string} string représentant une couleur en hexadécimal.
+         */
+        function parseColor(color) {
+            var tempColors = /#(..)(..)(..)/.exec(color).slice(1).map(function (x) {
+                return parseInt(x, 16) / 255;
+            })
+            tempColors.push(1);
+            this.color = tempColors;
+        }
+
+        /**
+         * Transforme une coleur codée en RGB sur 256 valeurs entières en format hexadécimal "#xxxxxx".
+         * @param {int} R, G, B - composante couleur sur 256 valeurs.
+         * @return {string} valeur hexadéciamal
+         */
+        function rgbToHex(R, G, B) {
+            return '#' + toHex(R) + toHex(G) + toHex(B)
+        }
+
+        /**
+         * Transforme une composante coleur codée sur 256 valeurs entières en format hexadécimal "xx".
+         * @param {int} n - composante couleur sur 256 valeurs.
+         * @return {string} valeur hexadéciamal
+         */
+        function toHex(n) {
+            n = parseInt(n, 10);
+            if (isNaN(n)) return "00";
+            n = Math.max(0, Math.min(n, 255));
+            return "0123456789ABCDEF".charAt((n - n % 16) / 16)
+                + "0123456789ABCDEF".charAt(n % 16);
+        }
+
+        /**
+         * Modifie la taille du rendu des particules et modifie l'affichage.
+         * @param {int} value - Longueur en pixel du coté du carré représentant une particule.
+         */
+        function changeParticuleSize(value) {
+            pSize = value;
+            document.getElementById("pSize").innerHTML = pSize
+        }
+
+        /**
+         * Calcul et affiche le nombre d'image affichée par seconde.
+         * applique un dégradé de vert à rouge en fonction du fps.
+         */
+        function computeFps() {
+            timeNow = Date.now();
+            fps++;
+            if (timeNow - timeLast >= 1000) {
+                document.getElementById("FPS").innerHTML = Number(fps * 1000.0 / (timeNow - timeLast)).toPrecision(2);
+                document.getElementById("FPS").style.color = rgbToHex(255 * (1 - fps / 60), 255 * fps / 60, 0);
+                timeLast = timeNow;
+                fps = 0;
+            }
+        }
+
+        /**
+         * Compare la taille du canevas avec la taille de son conteneur et modifie la taille du canevas en conséquence.
+         */
+        function resize() {
+            // Lookup the size the browser is displaying the canvas.
+            var displayWidth = document.getElementById('container').clientWidth;
+            var displayHeight = document.getElementById('container').clientHeight;
+            // Check if the canvas is not the same size.
+            if (c_width != displayWidth ||
+                c_height != displayHeight) {
+
+                // Make the canvas the same size
+                c_width = displayWidth;
+                c_height = displayHeight;
+                glContext.canvas.width = c_width;
+                glContext.canvas.height = c_height;
+                canevas_size = new Float32Array([c_width, c_height]);
+                scale = Math.floor(Math.pow(BASE, 2) / Math.max(c_width, c_height) / 3);
+                initTextures();
+            }
+        }
+
+        /**
+         * Active ou désactive le blending des particules
+         */
+        function changeBlending() {
+            applyBlending = !applyBlending;
+        }
+
+        /**
+         * Active ou désactive le changement du nombre de particules par palier de 2.
+         */
+        function changeParticlesCountProperty() {
+            isPowerTextures = !isPowerTextures;
+            changeParticlesCount(1);
+        }
+
+        /**
+         * Active ou désactive l'utilisation de couleur aléatoire pour chaque texture.
+         */
+        function enableRNGColor() {
+            useRngColor = !useRngColor;
+        }
+
+    </script>
+
+</head>
+<body onload="initWebGL()">
+<div id="container">
+    <div id="canvas">
+        <canvas id="webgl-canvas">
+            HTML5 is not supported
+        </canvas>
+    </div>
+    <div id="overlay">
+        <div id="line1">Couleur des particules: <input id="color" type="color" value="#249EFF"
+                                                       onchange="parseColor(value)"/>
+            <input type="checkbox" id="rngColor" onclick="enableRNGColor()"><a style=color:red>S</a><a
+                    style=color:#F6DB16>m</a><a style=color:#04B1F2>a</a><a style=color:#53AB02>r</a></button><a
+                    style=color:#580F08>t</a></button><a style=color:#FE6F8B>i</a></button><a
+                    style=color:#F95D18>e</a></button><a style=color:red>s</a></button>
+        </div>
+        <div id="line2">Taille des particules = <label id="pSize">3</label></div>
+        <div id="line3"><label>1</label><input type="range" id="pSizeSlider" step="1" min="1" max="5"
+                                               onChange="changeParticuleSize(value);">5
+        </div>
+        <div id="line4"> Nombre de particules:
+            <button class="more" onclick="changeParticlesCount(2)">++</button>
+            <button class="less" onclick="changeParticlesCount(0.5)">--</button>
+        </div>
+        <div id="line5">
+            <input type="checkbox" id="applyBlending" onclick="changeBlending()"> Blending
+            <input type="checkbox" id="isPowerTextures" onclick="changeParticlesCountProperty()"> Increment in power of
+            2
+        </div>
+        <div> Simulation de <span id="particuleCount">______</span> particules à <span id="FPS">___</span> FPS.</div>
+    </div>
+</div>
+</body>
+</html>
