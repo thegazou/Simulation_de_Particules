@@ -73,14 +73,37 @@
         void updatePosition(inout vec2 p, vec2 v) {
             p += v;
 
-            //Vérifie si la particule a quitté le canevas.
-            if (p.y <= 0.0 || p.y> canevas_size.y ) {
-                p.y = mod(p.y, canevas_size.y);
+            //Vérifie si la particule a quitté le canevas et la fait rebondir.
+            if (p.x > canevas_size.x) {
+                p.x = canevas_size.x;
+            } else if (p.x < 0.0) {
+                p.x = 0.0   ;
             }
-            if(p.x <= 0.0 || p.x > canevas_size.x)
-            {
-               p.x = mod(p.x, canevas_size.x);
+            if (p.y > canevas_size.y) {
+                p.y = canevas_size.y;
+            } else if (p.y < 0.0) {
+                p.y = 0.0;
             }
+        }
+
+        /**
+         * Modifie la vitesse de la particules
+         * @param {vec2} p - La position de la particule.
+         * @param {vec2} v - La vitesse de la particule donnée est modifié directment.
+         */
+        void updateVelocity(vec2 p, inout vec2 v)
+        {
+            p += v;
+            //Vérifie si la particule a quitté le canevas et la fait rebondir.
+            if (p.x > canevas_size.x) {
+                v.x *= -1.0;
+            } else if (p.x < 0.0) {
+                v.x *= -1.0;
+            }
+            if (p.y > canevas_size.y) {
+                v.y *= -1.0;
+            } else if (p.y < 0.0)
+                v.y *= -1.0;
         }
 
         void main() {
@@ -96,6 +119,7 @@
                 result = p;
                 currentScale = scale;
             } else {
+                updateVelocity(p,v);
                 result = v;
             }
             gl_FragColor = vec4(encode(result.x, currentScale), encode(result.y, currentScale));
@@ -115,6 +139,7 @@
         uniform vec2 canevas_size;
         uniform float pSize;
 
+        varying vec2 index_r;
         const float BASE = 255.0;
         const float OFFSET = BASE * BASE / 2.0;
 
@@ -132,6 +157,7 @@
          * Sa position est ensuite déterminé puis envoyé au fragment shader pour y être dessinée.
          */
         void main() {
+            index_r = index;
             vec4 psample = texture2D(positions, index / texture_size);
             vec2 p = vec2(decode(psample.rg), decode(psample.ba));
             gl_Position = vec4(p / canevas_size * 2.0 - 1.0, 0, 1);
@@ -144,11 +170,26 @@
         #ifdef GL_ES
         precision mediump float;
         #endif
-
+        varying vec2 index_r;
         uniform vec4 color;
+        uniform vec2 texture_size;
+        uniform bool useRNGColor;
+
+        const vec2 k = vec2(23.1406926327792690,2.6651441426902251);
+        float rnd7( vec2 uv ) { return fract( cos( mod( 1234567., 1024. * dot(uv,k) ) ) ); }
+        float rnd8( vec2 uv ) { return fract( cos( mod( 12345678., 1024. * dot(uv,k) ) ) ); }
+        float rnd9( vec2 uv ) { return fract( cos( mod( 123456780., 1024. * dot(uv,k) ) ) ); }
 
         //Dessine le canevas à l'écran.
         void main() {
+        if (useRNGColor)
+        {
+            mediump vec2 uv = index_r / texture_size.xy;
+            float r = rnd7(uv);
+            float g = rnd8(uv);
+            float b = rnd9(uv);
+            gl_FragColor = vec4(r,g,b,1.);
+        }else
             gl_FragColor = color;
         }
 
@@ -165,6 +206,7 @@
         var applyBlending = false;
         var startingParticuleCountPower = 0;
         var isPowerTextures = false;
+        var useRngColor = false;
 
         // Constantes
         var BASE = 255;
@@ -179,6 +221,7 @@
         var texture_size = null;
         var scale = 0;
         var particuleCountPower = 0;
+
 
         // Variables pour le stockage des informations nécessaires aux variables passées en attribut.
         var indexBuffer = null;
@@ -223,6 +266,8 @@
 
             computeFps();
             resize();
+            glContext.clearDepth(1.0);
+            glContext.disable(glContext.DEPTH_TEST);
 
             // ******************************************************************************************
             // *****                                                                                *****
@@ -289,7 +334,7 @@
             glContext.useProgram(progList[1]);
             glContext.viewport(0, 0, c_width, c_height);
             glContext.clearColor(0, 0, 0, 1); //Noir profond
-            glContext.clear(glContext.COLOR_BUFFER_BIT);
+            glContext.clear(glContext.COLOR_BUFFER_BIT | glContext.DEPTH_BUFFER_BIT);
 
             // La texture mise à jour des particules est copiée dans la zone mémoire du GPU pointée par uPositions1.
             glContext.activeTexture(glContext.TEXTURE0);
@@ -304,9 +349,10 @@
             glContext.uniform1f(ptr.uPSize1, pSize);
             glContext.uniform4fv(ptr.uColor1, this.color);
             glContext.uniform1f(ptr.uScale1, scale);
-
+            glContext.uniform1f(ptr.uUseRNGColor1, useRngColor);
             // Les particules sont dessinées par un le mode de dessin POINTS.
             glContext.drawArrays(glContext.POINTS, 0, particuleCount);
+            glContext.flush();
         }
 
         /**
@@ -360,6 +406,7 @@
          * pSize correspond à la largeur des particules en pixel.
          * color correspond à la coueur des particules.
          * applyBlenind permet de choisir si le blending est actif ou non.
+         * useRngColor active l'utilisation de couleurs aléatoires pour les particules.
          * glContext.blendFunc permet de modifier la fonction de blending utilisée.
          */
         function initGlobalVariables() {
@@ -373,6 +420,7 @@
             color = [36.0, 158.0, 255.0, 1.0];
             applyBlending = true;
             glContext.blendFunc(glContext.SRC_ALPHA, glContext.ONE);
+            useRngColor = false;
             // ###################
 
             particuleCountPower = startingParticuleCountPower;
@@ -382,6 +430,7 @@
                 particuleCount = startingParticuleCount;
             document.getElementById("isPowerTextures").checked = isPowerTextures;
             document.getElementById("applyBlending").checked = applyBlending;
+            document.getElementById("rngColor").checked = useRngColor;
             document.getElementById("particuleCount").innerHTML = particuleCount.toString().replace(/(\d)(?=(\d{3})+$)/g, '$1,');
             document.getElementById("pSizeSlider").value = pSize;
             document.getElementById("pSize").value = pSize;
@@ -407,7 +456,7 @@
         function initProgramms() {
 
             /*******************************************
-             * Creation du programme de caclul des positions
+             * Creation du programme de calcul
              *******************************************/
 
             var vertexShader0 = getTextContent("update-vertex-shader");
@@ -454,6 +503,7 @@
             ptr.uPSize1 = glContext.getUniformLocation(progList[1], "pSize");
             ptr.uColor1 = glContext.getUniformLocation(progList[1], "color");
             ptr.uScale1 = glContext.getUniformLocation(progList[1], "scale");
+            ptr.uUseRNGColor1 = glContext.getUniformLocation(progList[1], "useRNGColor")
         }
 
         /**
@@ -694,6 +744,13 @@
             changeParticlesCount(1);
         }
 
+        /**
+         * Active ou désactive l'utilisation de couleur aléatoire pour chaque texture.
+         */
+        function enableRNGColor() {
+            useRngColor = !useRngColor;
+        }
+
     </script>
 
 </head>
@@ -706,7 +763,12 @@
     </div>
     <div id="overlay">
         <div id="line1">Couleur des particules: <input id="color" type="color" value="#249EFF"
-                                                       onchange="parseColor(value)"/></div>
+                                                       onchange="parseColor(value)"/>
+            <input type="checkbox" id="rngColor" onclick="enableRNGColor()"><a style=color:red>S</a><a
+                    style=color:#F6DB16>m</a><a style=color:#04B1F2>a</a><a style=color:#53AB02>r</a></button><a
+                    style=color:#580F08>t</a></button><a style=color:#FE6F8B>i</a></button><a
+                    style=color:#F95D18>e</a></button><a style=color:red>s</a></button>
+        </div>
         <div id="line2">Taille des particules = <label id="pSize">3</label></div>
         <div id="line3"><label>1</label><input type="range" id="pSizeSlider" step="1" min="1" max="5"
                                                onChange="changeParticuleSize(value);">5
